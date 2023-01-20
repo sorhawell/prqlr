@@ -15,6 +15,8 @@ pub fn compile(
     format: bool,
     signature_comment: bool,
 ) -> String {
+    println!("hello there");
+
     let dialect = prql_compiler::sql::Dialect::from_str(dialect.as_deref().unwrap_or_default())
         .map(From::from)
         .ok();
@@ -25,13 +27,25 @@ pub fn compile(
         signature_comment,
     });
 
-    let result = Ok(prql_query)
-        .and_then(prql_compiler::prql_to_pl)
-        .and_then(prql_compiler::pl_to_rq)
-        .and_then(|rq| prql_compiler::rq_to_sql(rq, options.map(prql_compiler::sql::Options::from)))
-        .map_err(|e| e.composed("", prql_query, false));
+    #[allow(unused_assignments)] //rust does not under stand throw_r_error it seems.
+    let mut opt_err_string = None;
+    {
+        let result = Ok(prql_query)
+            .and_then(prql_compiler::prql_to_pl)
+            .and_then(prql_compiler::pl_to_rq)
+            .and_then(|rq| {
+                prql_compiler::rq_to_sql(rq, options.map(prql_compiler::sql::Options::from))
+            })
+            .map_err(|e| e.composed("", prql_query, false));
 
-    unwrap_or_throw(result)
+        match result {
+            Ok(v) => return v,
+            Err(e) => opt_err_string = Some(e.to_string()),
+        };
+    } //drop result here
+
+    throw_r_error(opt_err_string.expect("can only be Some by here"));
+    unreachable!("long jumped to R, never comming back");
 }
 
 /// @noRd
@@ -66,13 +80,21 @@ pub fn rq_to_sql(rq_json: &str) -> String {
 }
 
 fn unwrap_or_throw(result: anyhow::Result<String, prql_compiler::ErrorMessages>) -> String {
-    match result {
-        Ok(v) => v,
-        Err(e) => {
-            throw_r_error(e.to_string());
-            unreachable!()
+    #[allow(unused_assignments)] //rust does not under stand throw_r_error it seems.
+    let mut opt_err_string = None;
+    {
+        //move result into scope
+        let result = result;
+        match result {
+            Ok(v) => return v,
+            Err(e) => opt_err_string = Some(e.to_string()),
         }
-    }
+    } //result dropped here first
+
+    //only leaking error string, which not too bad by R standards
+
+    throw_r_error(opt_err_string.expect("can only be Some by here"));
+    unreachable!("long jumped to R, never comming back");
 }
 
 extendr_module! {
